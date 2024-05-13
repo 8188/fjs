@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>抗燃油监测系统</title>
+    <link rel="stylesheet" href="css/download/fontawesome-free-6.4.2-web/css/all.min.css">
+    <link rel="stylesheet" href="css/common.css">
+    <link rel="stylesheet" href="css/index.css">
+</head>
+
+<body>
+    <div class="data">
+
+        <div class="data-title">
+            <div class="title-left fl"></div>
+            <div class="title-center fl">抗燃油监测系统</div>
+            <div class="title-right fl"></div>
+        </div>
+        <div class="data-content">
+            <div class="con-left fl">
+                <div class="left-top">
+                    <div class="info">
+                        <div class="title">
+                            <p>状态</p>
+                        </div>
+                        <img src="img/bj-1.png" alt="" class="bj-1">
+                        <img src="img/bj-2.png" alt="" class="bj-2">
+                        <img src="img/bj-3.png" alt="" class="bj-3">
+                        <img src="img/bj-4.png" alt="" class="bj-4">
+                        <div class="info-main">
+                            <div id="status" class="charts"></div>
+                        </div>
+                    </div>
+                    <div class="top-middle">
+                        <div class="title">
+                            <p>健康度</p>
+                            <!-- <select id="deviceSelect"></select> -->
+                        </div>
+                        <img src="img/bj-1.png" alt="" class="bj-1">
+                        <img src="img/bj-2.png" alt="" class="bj-2">
+                        <img src="img/bj-3.png" alt="" class="bj-3">
+                        <img src="img/bj-4.png" alt="" class="bj-4">
+                        <div id="healthScore" class="charts"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="con-center fl">
+                <svg viewBox="0 0 1250 716">
+                    <image href="img/system.gif"></image>
+                    <text id="GSE001VV" x="16%" y="3%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE001VV" x="26%" y="3%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE011VV" x="46%" y="3%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GSE011VV" x="56%" y="3%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+
+                    <text id="GSE002VV" x="16%" y="13%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE002VV" x="26%" y="13%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE012VV" x="46%" y="13%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GSE012VV" x="56%" y="13%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+
+                    <text id="GSE003VV" x="16%" y="35%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE003VV" x="26%" y="35%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE013VV" x="46%" y="35%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GSE013VV" x="56%" y="35%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+
+                    <text id="GSE004VV" x="16%" y="45%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE004VV" x="26%" y="45%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GRE014VV" x="46%" y="45%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GSE014VV" x="56%" y="45%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+
+                    <text id="GFR011MP" x="51%" y="60%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GFR012MP" x="51%" y="62%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+                    <text id="GFR013MP" x="51%" y="64%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01Mpa</text>
+
+                    <text id="GFR006MT" x="16%" y="89%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01℃</text>
+                    <text id="GFR008MT" x="47.5%" y="89%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01℃</text>
+
+                    <text id="GFR001MN" x="86%" y="85%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01mm</text>
+                    <text id="GFR002MN" x="86%" y="87%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01mm</text>
+                    <text id="GFR003MN" x="86%" y="89%" fill="green" text-anchor="middle" dominant-baseline="middle">0.01mm</text>
+                </svg>
+            </div>
+            <div class="con-right fr">
+                <div class="right-top">
+                    <div class="title">
+                        <p>报警列表</p>
+                        <div class="buttons">
+                            <button id="toggleVisibility" class="submit-btn">显示已确认</button>
+                        </div>
+                    </div>
+                    <img src="img/bj-1.png" alt="" class="bj-1">
+                    <img src="img/bj-2.png" alt="" class="bj-2">
+                    <img src="img/bj-3.png" alt="" class="bj-3">
+                    <img src="img/bj-4.png" alt="" class="bj-4">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>报警时间</th>
+                                    <th>报警点位</th>
+                                    <th>描述</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="con-bottom fr">
+                <div class="bottom-left-top">
+                    <div class="title">油箱液位趋势图</div>
+                    <img src="img/bj-1.png" alt="" class="bj-1">
+                    <img src="img/bj-2.png" alt="" class="bj-2">
+                    <img src="img/bj-3.png" alt="" class="bj-3">
+                    <img src="img/bj-4.png" alt="" class="bj-4">
+                    <div id="liquidLevel" class="charts"></div>
+                </div>
+                <div class="bottom-left-bottom">
+                    <div class="title">抗燃油压力趋势图</div>
+                    <img src="img/bj-1.png" alt="" class="bj-1">
+                    <img src="img/bj-2.png" alt="" class="bj-2">
+                    <img src="img/bj-3.png" alt="" class="bj-3">
+                    <img src="img/bj-4.png" alt="" class="bj-4">
+                    <div id="pressure" class="charts"></div>
+                </div>
+                <div class="bottom-right-top">
+                    <div class="title">温度趋势图</div>
+                    <img src="img/bj-1.png" alt="" class="bj-1">
+                    <img src="img/bj-2.png" alt="" class="bj-2">
+                    <img src="img/bj-3.png" alt="" class="bj-3">
+                    <img src="img/bj-4.png" alt="" class="bj-4">
+                    <div id="temperature" class="charts"></div>
+                </div>
+                <div class="bottom-right-bottom">
+                    <div class="title">油动机腔室油压趋势图</div>
+                    <img src="img/bj-1.png" alt="" class="bj-1">
+                    <img src="img/bj-2.png" alt="" class="bj-2">
+                    <img src="img/bj-3.png" alt="" class="bj-3">
+                    <img src="img/bj-4.png" alt="" class="bj-4">
+                    <div id="chamberPressure" class="charts"></div>
+                </div>
+            </div>
+        </div>
+        <footer>&copy; 2024 DEA. All rights reserved.</footer>
+    </div>
+</body>
+<script src="js/download/jquery-3.6.0.min.js"></script>
+<script src="js/download/echarts.min.js"></script>
+<script src="js/download/paho-mqtt-min.js"></script>
+<script src="js/index.js"></script>
+
+</html>

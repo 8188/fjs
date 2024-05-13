@@ -1,0 +1,76 @@
+version: '3'
+services:
+  worker:
+    image: fjs-app
+    container_name: fjs-worker
+    environment:
+      - REDIS_IP=fjs-redis
+      - MQTT_IP=fjs-mqtt
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c", "chmod +x /app/start-worker.sh && /app/start-worker.sh && while true; do sleep 1; done"]
+    restart: always
+
+  beat:
+    image: fjs-app
+    container_name: fjs-beat
+    environment:
+      - REDIS_IP=fjs-redis
+      - MQTT_IP=fjs-mqtt
+    depends_on:
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c", "chmod +x /app/start-beat.sh && /app/start-beat.sh && while true; do sleep 1; done"]
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: fjs-redis
+    environment:
+      - TZ=Asia/Shanghai
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 30s
+      interval: 10s
+      retries: 3
+
+  mqtt:
+    image: emqx
+    container_name: fjs-mqtt
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8883:8883"
+      - "8084:8084"
+      - "18083:18083"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18083/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:stable-alpine-slim
+    container_name: fjs-nginx
+    volumes:
+      - ./fjs.conf:/etc/nginx/nginx.conf
+      - ./public:/usr/share/nginx/html
+    ports:
+      - "8080:8080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - beat
