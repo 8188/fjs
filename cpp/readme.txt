@@ -1,6 +1,6 @@
 [Dependencies]
 sw/redis++, paho.mqtt.cpp
-vincent's CSV, nlphmannJson, taskflow	-- header-only
+vincent's CSV, nlphmannJson, taskflow, dotenv-cpp	-- header-only
 
 [Run]
 make

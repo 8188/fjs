@@ -13,16 +13,12 @@
 #include <mqtt/async_client.h>
 #include "nlohmann/json.hpp"
 #include "taskflow/taskflow.hpp"
+#include "dotenv.h"
 
 using json = nlohmann::json;
 
-constexpr const char *MQTT_ADDRESS{"ws://172.30.128.1:8083"};
 constexpr const int QOS{1};
 constexpr const auto TIMEOUT{std::chrono::seconds(10)};
-
-constexpr const char *REDIS_IP{"172.30.128.1"};
-constexpr const int REDIS_PORT{6379};
-constexpr const int REDIS_DB{0};
 
 constexpr const char *DATE_FORMAT{"%Y-%m-%d %H:%M:%S"};
 
@@ -769,6 +765,12 @@ void test(T& mechanism, const std::string &topic)
 
 int main()
 {
+    dotenv::init();
+    const std::string MQTT_ADDRESS{std::getenv("MQTT_ADDRESS")};
+    const std::string REDIS_IP{std::getenv("REDIS_IP")};
+    const int REDIS_PORT = std::atoi(std::getenv("REDIS_PORT"));
+    const int REDIS_DB = std::atoi(std::getenv("REDIS_DB"));
+
     mqtt::async_client MQTTCli(MQTT_ADDRESS, "");
     auto connBuilder = mqtt::connect_options_builder::ws();
     auto connOpts = connBuilder
