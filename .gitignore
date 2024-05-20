@@ -15,11 +15,10 @@ celerybeat*
 *.xlsx
 Dockerfile
 testPI.py
-readme.txt
+/readme.txt
 program.prof
 系统图.drawio
 requirements.in
 Excel*
 .env
 utils.so
-*.cpp

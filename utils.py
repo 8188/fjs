@@ -582,9 +582,9 @@ def liquidLevel(unit):
             else False
         ):
             flag = 1
-            trigger("dea:liquidLevel", tag+'_2', tag, "抗燃油液位低低", st2, now, iUnit)
+            trigger("liquidLevel", tag+'_2', tag, "抗燃油液位低低", st2, now, iUnit)
         else:
-            revert("dea:liquidLevel", tag+'_2', st2)
+            revert("liquidLevel", tag+'_2', st2)
         if (
             c_df[iUnit][tag] < 250
             and c_df[iUnit][tag] >= 200
@@ -596,9 +596,9 @@ def liquidLevel(unit):
             else False
         ):
             flag = 1
-            trigger("dea:liquidLevel", tag+'_3', tag, "抗燃油液位低", st3, now, iUnit)
+            trigger("liquidLevel", tag+'_3', tag, "抗燃油液位低", st3, now, iUnit)
         else:
-            revert("dea:liquidLevel", tag+'_3', st3)
+            revert("liquidLevel", tag+'_3', st3)
     return flag
 
 
