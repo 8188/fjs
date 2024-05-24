@@ -19,10 +19,7 @@ using json = nlohmann::json;
 
 constexpr const int QOS{1};
 constexpr const auto TIMEOUT{std::chrono::seconds(10)};
-
 constexpr const char *DATE_FORMAT{"%Y-%m-%d %H:%M:%S"};
-
-std::array<csv::CSVReader::iterator, 2> it{};
 
 const std::vector<std::string> codes_with_unit(const std::string &unit, const std::vector<std::string> &codes)
 {
@@ -192,9 +189,10 @@ public:
     std::vector<std::string> m_all_targets{};
     std::string m_unit{};
     std::unordered_map<std::string_view, std::unordered_map<std::string_view, std::vector<Alarm>>> alerts{};
+    csv::CSVRow& m_c_df;
 
-    MechanismBase(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : m_unit{unit}, m_redis{redis}, m_MQTTCli{MQTTCli}
+    MechanismBase(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : m_unit{unit}, m_redis{redis}, m_MQTTCli{MQTTCli}, m_c_df{*it}
     {
         if (unit < "1" || unit > "9")
         {
@@ -249,6 +247,7 @@ public:
                 alarmJson["desc"] = alarm.desc;
                 alarmJson["advice"] = alarm.advice;
                 alarmJson["startTime"] = alarm.startTime;
+                std::cout << alarm.startTime << '\n';
                 alarms.push_back(alarmJson);
                 // std::cout << "Code: " << alarmJson["code"] << ", Desc: " << alarmJson["desc"] << ", Advice: " << alarmJson["advice"] << ", Start Time: " << alarmJson["startTime"] << '\n';
             }
@@ -309,8 +308,8 @@ private:
     int iUnit;
 
 public:
-    RegulatorValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    RegulatorValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_regulatorValveChamberOilPressure{codes_with_unit(m_unit, regulatorValveChamberOilPressure)}
         , m_safeOilPressure{codes_with_unit(m_unit, safeOilPressure)}
         , iUnit{std::stoi(m_unit) - 1}
@@ -320,11 +319,10 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"regulatorValve"};
+        const std::string_view key{"FJS:Mechanism:regulatorValve"};
         const std::string_view content{"开调节阀 阀门卡涩"};
-        const std::string_view now{get_now()};
+        const std::string now{get_now()}; // 用string_view写入redis会乱码
 
-        csv::CSVRow& c_df{*it[iUnit]};
         for (int i{0}; i < static_cast<int>(m_regulatorValveChamberOilPressure.size()); ++i)
         {
             const std::string chamber = m_regulatorValveChamberOilPressure[i];
@@ -337,7 +335,7 @@ public:
             std::optional<double> chamber_opt{}; // 提前申明，否则goto引起重复初始化
             for (const std::string &pressure : m_safeOilPressure)
             {
-                auto pressure_opt = get_value_from_CSVRow<double>(c_df, pressure);
+                auto pressure_opt = get_value_from_CSVRow<double>(m_c_df, pressure);
                 if (!pressure_opt.has_value())
                 {
                     goto end_of_loops_logic_of_RegulatorValve;
@@ -349,7 +347,7 @@ public:
                 }
             }
 
-            chamber_opt = get_value_from_CSVRow<double>(c_df, chamber);
+            chamber_opt = get_value_from_CSVRow<double>(m_c_df, chamber);
             if (!chamber_opt.has_value()) {
                 continue;
             }
@@ -379,8 +377,8 @@ private:
     int iUnit;
 
 public:
-    MainValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    MainValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_mainValveChamberOilPressure{codes_with_unit(m_unit, mainValveChamberOilPressure)}
         , m_safeOilPressure{codes_with_unit(m_unit, safeOilPressure)}
         , iUnit{std::stoi(m_unit) - 1}
@@ -390,16 +388,16 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"mainValve"};
+        const std::string_view key{"FJS:Mechanism:mainValve"};
+        const std::string_view keyCommand{"FJS:Mechanism:command"};
         const std::string_view content1{"开主汽阀 阀门卡涩"};
         const std::string_view content2{"试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）"};
         const std::string now{get_now()};
 
-        csv::CSVRow& c_df{*it[iUnit]};
         bool condition = true;
         for (const std::string &pressure : m_safeOilPressure)
         {
-            auto pressure_opt = get_value_from_CSVRow<double>(c_df, pressure);
+            auto pressure_opt = get_value_from_CSVRow<double>(m_c_df, pressure);
             if (!pressure_opt.has_value())
             {
                 return flag;
@@ -414,16 +412,16 @@ public:
         std::optional<std::string> optional_str;
         if (condition)
         {
-            optional_str = m_redis.hget("command", "open");
+            optional_str = m_redis.hget(keyCommand, "open");
             const std::string openCommand = optional_str.value_or("0");
             if (openCommand != "1")
             {
-                m_redis.hset("command", "open", "1");
-                m_redis.hset("command", "openTime", now);
+                m_redis.hset(keyCommand, "open", "1");
+                m_redis.hset(keyCommand, "openTime", now);
             }
             else
             {
-                optional_str = m_redis.hget("command", "openTime");
+                optional_str = m_redis.hget(keyCommand, "openTime");
                 const std::string startTime = optional_str.value_or(now);
                 std::time_t nowTimestamp = string2time(now);
                 std::time_t startTimeTimestamp = string2time(startTime);
@@ -439,7 +437,7 @@ public:
                     optional_str = m_redis.hget(key, chamber + "_2");
                     const std::string st2 = optional_str.value_or("0");
 
-                    auto mainValveOpenning_opt = get_value_from_CSVRow<double>(c_df, m_unit + "GSE011MM");
+                    auto mainValveOpenning_opt = get_value_from_CSVRow<double>(m_c_df, m_unit + "GSE011MM");
                     if (!mainValveOpenning_opt.has_value())
                     {
                         continue;
@@ -448,7 +446,7 @@ public:
                     if (diff > std::chrono::seconds(180) && mainValveOpenning_opt.value() < 95)
                     {
                         flag = 1;
-                        auto chamber_opt = get_value_from_CSVRow<double>(c_df, chamber);
+                        auto chamber_opt = get_value_from_CSVRow<double>(m_c_df, chamber);
                         if (!chamber_opt.has_value())
                         {
                             continue;
@@ -484,7 +482,7 @@ public:
                 revert(key, chamber + "_1", st1);
                 revert(key, chamber + "_2", st2);
             }
-            m_redis.hset("command", "open", "0");
+            m_redis.hset(keyCommand, "open", "0");
         }
         return flag;
     }
@@ -497,8 +495,8 @@ private:
     int iUnit;
 
 public:
-    LiquidLevel(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    LiquidLevel(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilLevel{codes_with_unit(m_unit, oilLevel)}
         , iUnit{std::stoi(m_unit) - 1}
     {
@@ -507,11 +505,10 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"liquidLevel"};
+        const std::string_view key{"FJS:Mechanism:liquidLevel"};
         const std::string content{"抗燃油液位"};
-        const std::string_view now{get_now()};
+        const std::string now{get_now()};
 
-        csv::CSVRow& c_df{*it[iUnit]};
         std::optional<std::string> optional_str;        
         for (const std::string &tag : m_OilLevel)
         {
@@ -522,7 +519,7 @@ public:
             optional_str = m_redis.hget(key, tag + "_3");
             const std::string st3 = optional_str.value_or("0");
 
-            auto tag_opt = get_value_from_CSVRow<double>(c_df, tag);
+            auto tag_opt = get_value_from_CSVRow<double>(m_c_df, tag);
             if (!tag_opt.has_value())
             {
                 continue;
@@ -567,8 +564,8 @@ private:
     int iUnit;
 
 public:
-    Pressure(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    Pressure(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilPressure{codes_with_unit(m_unit, oilPressure)}
         , iUnit{std::stoi(m_unit) - 1}
     {
@@ -577,11 +574,10 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"pressure"};
+        const std::string_view key{"FJS:Mechanism:pressure"};
         const std::string content{"抗燃油压力"};
-        const std::string_view now{get_now()};
+        const std::string now{get_now()};
 
-        csv::CSVRow& c_df{*it[iUnit]};
         std::optional<std::string> optional_str;        
         for (const std::string &tag : m_OilPressure)
         {
@@ -590,7 +586,7 @@ public:
             optional_str = m_redis.hget(key, tag + "_2");
             const std::string st2 = optional_str.value_or("0");
 
-            auto tag_opt = get_value_from_CSVRow<double>(c_df, tag);
+            auto tag_opt = get_value_from_CSVRow<double>(m_c_df, tag);
             if (!tag_opt.has_value())
             {
                 continue;
@@ -626,8 +622,8 @@ private:
     int iUnit;
 
 public:
-    Temperature(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    Temperature(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilTemperature{codes_with_unit(m_unit, oilTemperature)}
         , iUnit{std::stoi(m_unit) - 1}
     {
@@ -636,11 +632,10 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"temperature"};
+        const std::string_view key{"FJS:Mechanism:temperature"};
         const std::string content{"抗燃油温度"};
-        const std::string_view now{get_now()};
+        const std::string now{get_now()};
 
-        csv::CSVRow& c_df{*it[iUnit]};
         std::optional<std::string> optional_str;
         const std::string ot = m_OilTemperature[0];
         const std::string ht = m_OilTemperature[1];
@@ -653,7 +648,7 @@ public:
         optional_str = m_redis.hget(key, ht);
         const std::string st4 = optional_str.value_or("0");
 
-        auto ot_opt = get_value_from_CSVRow<double>(c_df, ot);
+        auto ot_opt = get_value_from_CSVRow<double>(m_c_df, ot);
         if (!ot_opt.has_value())
         {
             return flag;
@@ -687,7 +682,7 @@ public:
             revert(key, ot + "_3", st3);
         }
 
-        auto ht_opt = get_value_from_CSVRow<double>(c_df, ht);
+        auto ht_opt = get_value_from_CSVRow<double>(m_c_df, ht);
         if (!ht_opt.has_value())
         {
             return flag;
@@ -713,8 +708,8 @@ private:
     int iUnit;
 
 public:
-    Filter(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli)
-        : MechanismBase(unit, redis, MQTTCli)
+    Filter(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+        : MechanismBase(unit, redis, MQTTCli, it)
         , m_FilterPressure{codes_with_unit(m_unit, filterPressure)}
         , iUnit{std::stoi(m_unit) - 1}
     {
@@ -723,18 +718,17 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"filter"};
+        const std::string_view key{"FJS:Mechanism:filter"};
         const std::string content{"过滤器堵塞"};
-        const std::string_view now{get_now()};
+        const std::string now{get_now()};
 
-        csv::CSVRow& c_df{*it[iUnit]};
         std::optional<std::string> optional_str;
         for (const std::string &tag : m_FilterPressure)
         {
             optional_str = m_redis.hget(key, tag);
             const std::string st = optional_str.value_or("0");
 
-            auto block_opt = get_value_from_CSVRow<double>(c_df, tag);
+            auto block_opt = get_value_from_CSVRow<double>(m_c_df, tag);
             if (!block_opt.has_value())
             {
                 continue;
@@ -759,8 +753,18 @@ void test(T& mechanism, const std::string &topic)
 {
     int flag = mechanism.logic();
     std::cout << flag << '\n';
+    if (flag == 1)
+    {
+        mechanism.send_message(topic);
+    }
+}
 
-    mechanism.send_message(topic);
+void show_points(csv::CSVReader::iterator& it, mqtt::async_client& MQTTCli, const std::string& unit)
+{
+    csv::CSVRow& c_df{*it};
+    std::string jsonString = c_df.to_json();
+    auto msg = mqtt::make_message("FJS" + unit + "/Points", jsonString, QOS, false);
+    bool ok = MQTTCli.publish(msg)->wait_for(TIMEOUT);
 }
 
 int main()
@@ -793,27 +797,28 @@ int main()
     const std::string unit{"1"};
     const int iUnit{std::stoi(unit) - 1};
     csv::CSVReader reader("test.csv");
+    std::array<csv::CSVReader::iterator, 2> it{};
     for (it[iUnit] = reader.begin(); it[iUnit] != reader.end(); ++it[iUnit])
     {
     }
 
-    RegulatorValve regulator_valve1{unit, redisClient, MQTTCli};
-    constexpr const char *regulator_valve_topic{"fjs/RegulatorValve"};
+    RegulatorValve regulator_valve1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string regulator_valve_topic{"FJS" + unit + "/Mechanism/RegulatorValve"};
 
-    MainValve main_valve1{unit, redisClient, MQTTCli};
-    constexpr const char *main_valve_topic{"fjs/MainValve"};
+    MainValve main_valve1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string main_valve_topic{"FJS" + unit + "/Mechanism/MainValve"};
 
-    LiquidLevel liquid_level1{unit, redisClient, MQTTCli};
-    constexpr const char *liquid_level_topic{"fjs/LiquidLevel"};
+    LiquidLevel liquid_level1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string liquid_level_topic{"FJS" + unit + "/Mechanism/LiquidLevel"};
 
-    Pressure pressure1{unit, redisClient, MQTTCli};
-    constexpr const char *pressure_topic{"fjs/Pressure"};
+    Pressure pressure1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string pressure_topic{"FJS" + unit + "/Mechanism/Pressure"};
 
-    Temperature temperature1{unit, redisClient, MQTTCli};
-    constexpr const char *temperature_topic{"fjs/Temperature"};
+    Temperature temperature1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string temperature_topic{"FJS" + unit + "/Mechanism/Temperature"};
 
-    Filter filter1{unit, redisClient, MQTTCli};
-    constexpr const char *filter_topic{"fjs/Filter"};
+    Filter filter1{unit, redisClient, MQTTCli, it[iUnit]};
+    const std::string filter_topic{"FJS" + unit + "/Mechanism/Filter"};
 
     tf::Taskflow f1("F1");
 
@@ -840,6 +845,10 @@ int main()
     tf::Task f1F = f1.emplace([&]() {
         test(filter1, filter_topic);
     }).name("test_filter");
+
+    tf::Task f1G = f1.emplace([&]() {
+        show_points(it[iUnit], MQTTCli, unit);
+    }).name("show_points");    
 
     tf::Executor executor;
     int count = 0;
