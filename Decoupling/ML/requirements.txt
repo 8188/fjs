@@ -15,6 +15,8 @@ contourpy==1.2.1
     # via matplotlib
 cycler==0.12.1
     # via matplotlib
+dependency-injector==4.41.0
+    # via -r requirements.in
 fonttools==4.51.0
     # via matplotlib
 importlib-resources==6.4.0
@@ -101,6 +103,7 @@ scipy==1.13.1
     #   statsmodels
 six==1.16.0
     # via
+    #   dependency-injector
     #   patsy
     #   pyod
     #   python-dateutil

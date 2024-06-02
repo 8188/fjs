@@ -319,7 +319,7 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:regulatorValve"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:regulatorValve"};
         const std::string_view content{"开调节阀 阀门卡涩"};
         const std::string now{get_now()}; // 用string_view写入redis会乱码
 
@@ -388,8 +388,8 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:mainValve"};
-        const std::string_view keyCommand{"FJS:Mechanism:command"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:mainValve"};
+        const std::string keyCommand{"FJS" + m_unit + ":Mechanism:command"};
         const std::string_view content1{"开主汽阀 阀门卡涩"};
         const std::string_view content2{"试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）"};
         const std::string now{get_now()};
@@ -505,7 +505,7 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:liquidLevel"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:liquidLevel"};
         const std::string content{"抗燃油液位"};
         const std::string now{get_now()};
 
@@ -574,7 +574,7 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:pressure"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:pressure"};
         const std::string content{"抗燃油压力"};
         const std::string now{get_now()};
 
@@ -632,7 +632,7 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:temperature"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:temperature"};
         const std::string content{"抗燃油温度"};
         const std::string now{get_now()};
 
@@ -718,7 +718,7 @@ public:
     int logic() override
     {
         int flag{0};
-        const std::string_view key{"FJS:Mechanism:filter"};
+        const std::string key{"FJS" + m_unit + ":Mechanism:filter"};
         const std::string content{"过滤器堵塞"};
         const std::string now{get_now()};
 
