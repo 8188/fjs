@@ -1,24 +1,26 @@
-from typing import Any, Literal, Callable
+from typing import Any, Literal, Callable, Tuple, Awaitable, Optional, cast, Iterable
 
 from config import *
+
+import sys
+from time import time, sleep
+from datetime import datetime, timedelta
+from queue import Queue
+import asyncio
+from concurrent import futures
 
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.api import adfuller, VAR
 from statsmodels.tsa.vector_ar import vecm
-from time import time, sleep
-from datetime import datetime, timedelta
-import orjson as json
-from pythresh.thresholds.comb import COMB
 from outliers import smirnov_grubbs as grubbs
 from pyod.models import lof, cof, inne, ecod, lscp
 import sranodec as anom
+
 import redis.asyncio as redis
-from queue import Queue
-import asyncio
 import aiomqtt
-import sys
-from concurrent import futures
+
+import orjson as json
 from dependency_injector import containers, providers
 from dependency_injector.wiring import Provide, inject
 
@@ -168,29 +170,31 @@ healthQ = [Queue(maxsize=MAX_QUEUE_SIZE) for _ in range(2)]
 currentTime = [datetime.now() for _ in range(2)]
 now = ["" for _ in range(2)]
 
-def codes_with_unit(codes: tuple[str], unit: str) -> list[str]:
+def codes_with_unit(codes: Tuple[str, ...], unit: str) -> list[str]:
     suffix = ""
+    unit = '1' # for test
     return [unit + item + suffix for item in codes]
 
 
-class Service:
+class RedisService:
+
     def __init__(self, redis: redis.Redis) -> None:
         self._redis = redis
 
-    async def hget(self, name: str, key: str) -> str:
-        return await self._redis.hget(name, key)
+    async def hget(self, name: str, key: str) -> Awaitable[Optional[str]]:
+        return await self._redis.hget(name, key) # type: ignore
 
-    async def hgetall(self, name: str) -> dict:
-        return await self._redis.hgetall(name)
+    async def hgetall(self, name: str) -> Awaitable[dict]:
+        return await self._redis.hgetall(name) # type: ignore
 
-    async def hset(self, name: str, key: str, value: str) -> None:
-        return await self._redis.hset(name, key, value)
+    async def hset(self, name: str, key: str, value: str) -> Awaitable[int]:
+        return await self._redis.hset(name, key, value) # type: ignore
 
 
 class RedisContainer(containers.DeclarativeContainer):
     # config = providers.Configuration()
 
-    def _init_redis() -> redis.Redis:
+    def _init_redis() -> redis.Redis: # type: ignore
         pool = redis.ConnectionPool.from_url(
             f"redis://{REDIS_IP}:{REDIS_PORT}/{REDIS_DB}",
             encoding="utf-8",
@@ -205,7 +209,7 @@ class RedisContainer(containers.DeclarativeContainer):
     )
 
     service = providers.Factory(
-        Service,
+        RedisService,
         redis=_redis_conn,
     )
 
@@ -215,7 +219,8 @@ class AppContainer(containers.DeclarativeContainer):
 
 
 class GetData:
-    def __init__(self, unit) -> None:
+
+    def __init__(self, unit: str) -> None:
         self.unit = unit
         self.iUnit = int(unit) - 1
         self.fTargets = self._f_targets()
@@ -255,11 +260,12 @@ class GetData:
 
 
 class AnomalyDetection:
+
     def __init__(self, unit: str) -> None:
         self.unit = unit
         self.iUnit = int(unit) - 1
         self.clf = lscp.LSCP(
-            contamination=COMB(),
+            # contamination=COMB(),
             detector_list=self._create_detector_list(),
             n_bins=len(self._create_detector_list()),
         )
@@ -276,13 +282,16 @@ class AnomalyDetection:
         if a_df[self.iUnit].shape[0] < 24:
             print("Not enough data for grubbs")
             return 0
+
         x = 0
         try:
             for i in range(a_df[self.iUnit].shape[1]):
-                x += len(grubbs.two_sided_test_indices(a_df[self.iUnit].iloc[:, i].values, alpha=0.05)) > 0
+                result = grubbs.two_sided_test_indices(a_df[self.iUnit].iloc[:, i].values, alpha=0.05)
+                if result:
+                    x += len(result) > 0
 
-            result = x / a_df[self.iUnit].shape[1]
-            return result
+            final = x / a_df[self.iUnit].shape[1]
+            return final
         except Exception as e:
             print(e)
             return 0
@@ -306,6 +315,7 @@ class AnomalyDetection:
         if a_df[self.iUnit].shape[0] < 24:
             print("Not enough data for srs")
             return 0
+        
         score_window_size = min(a_df[self.iUnit].shape[0], 100)
         spec = anom.Silency(
             amp_window_size=24, series_window_size=24, score_window_size=score_window_size
@@ -318,19 +328,20 @@ class AnomalyDetection:
                 abnormal += np.sum(score > np.percentile(score, 99)) > 0
 
             result = abnormal / a_df[self.iUnit].shape[1]
-            return result
+            return float(result)
         except Exception as e:
             print(e)
             return 0
 
 
 class Forecast:
+
     def __init__(self, unit: str) -> None:
         self.unit = unit
         self.iUnit = int(unit) - 1
         self.targetList = self._target_list()
 
-    def _target_list(self) -> list[str]:
+    def _target_list(self) -> Tuple[list[str], ...]:
         return (
             codes_with_unit(regulatorValveOpening, self.unit)[:4],  # 高压调节阀开度
             codes_with_unit(regulatorValveOpening, self.unit)[4:],  # 中压调节阀开度
@@ -355,7 +366,7 @@ class Forecast:
         res = model.select_order(maxlags=5)
         best_lag = res.selected_orders["aic"]
         # print(f"best_lag={best_lag}")
-        yhat = model.fit(maxlags=max(best_lag, 10)).forecast(
+        yhat = model.fit(maxlags=int(max(best_lag, 10))).forecast(
             data.values, steps=FORECAST_STEP
         )
         # print(yhat)
@@ -396,15 +407,16 @@ class Forecast:
                 )
                 vrfData[self.iUnit].update(
                     {
-                        col: result[col].values.round(DECIMALS)
+                        col: result[col].round(DECIMALS).values
                         for col in result.columns[:targetLen]
                     }
                 )
-        # print(vrfData[iUnit].keys())
+        # print(vrfData[self.iUnit])
 
 
 class Logic:
-    @inject # 可以不要
+
+    @inject  # 可以不要
     def __init__(
         self,
         unit: str,
@@ -571,7 +583,7 @@ class Logic:
             await self._revert(self.TName, self.ht, st4)
         return flag
 
-    async def _foo(self, judgeFunc: Callable[[], Literal[0, 1]]) -> None:
+    async def _foo(self, judgeFunc: Callable[[], Awaitable[Literal[0, 1]]]) -> None:
         tag = judgeFunc.__name__
         r = await judgeFunc()
         if r == 0:
@@ -602,6 +614,7 @@ class Logic:
 
 
 class Health:
+
     @inject
     def __init__(
         self,
@@ -704,53 +717,84 @@ async def test(unit: str) -> None:
         # await redis_conn.aclose()
 
 
-async def tasks(unit: str) -> None:
-    app = AppContainer()
-    app.wire(modules=[__name__])
+class Tasks:
 
-    executor = futures.ThreadPoolExecutor()
-    count = 0
-    try:
-        async with aiomqtt.Client(MQTT_IP, MQTT_PORT) as MQTTClient:
-            print("----build new MQTT connection----")
-            gd = GetData(unit)
-            ad = AnomalyDetection(unit)
-            fore = Forecast(unit)
-            lgc = Logic(unit)
-            hlth = Health(unit)
-            while 1:
-                start = time()
+    def __init__(self, unit: str) -> None:
+        app = AppContainer()
+        app.wire(modules=[__name__])
 
-                future_get_forecast_df = executor.submit(gd.get_forecast_df)
-                future_get_anomaly_df = executor.submit(gd.get_anomaly_df)
-                futures.wait([future_get_forecast_df, future_get_anomaly_df])
+        self.unit = unit
+        self.exec = futures.ThreadPoolExecutor()
+        self.count = 0
 
-                future_grubbs = executor.submit(ad.grubbs_t)
-                future_lscp = executor.submit(ad.lscp_t)
-                future_spectral = executor.submit(ad.spectral_residual_saliency)
-                future_vr_forecast = executor.submit(fore.vr_forecast)
-                future_get_now = executor.submit(lgc.getNow)
-                futures.wait([future_vr_forecast, future_grubbs, future_lscp, future_spectral, future_get_now])
+        self.gd = GetData(unit)
+        self.ad = AnomalyDetection(unit)
+        self.fore = Forecast(unit)
+        self.lgc = Logic(unit)
+        self.hlth = Health(unit)
 
-                await hlth.health_score(MQTTClient, future_grubbs.result(), future_lscp.result(), future_spectral.result())
-                await lgc.analysis(MQTTClient)
+    def _get_data(self) -> None:
+        future_get_forecast_df = self.exec.submit(self.gd.get_forecast_df)
+        future_get_anomaly_df = self.exec.submit(self.gd.get_anomaly_df)
+        futures.wait([future_get_forecast_df, future_get_anomaly_df])
 
-                end = time()
-                elapsed_time = int((end - start) * 1000000)
-                count += 1
-                print(f"Loop {count} time used: {elapsed_time} microseconds")
-                sleep(max(INTERVAL - elapsed_time / 1000000, 0))
-    except aiomqtt.MqttError:
-        print(f"MQTT connection lost; Reconnecting in 5 seconds ...")
-        await asyncio.sleep(5)
-    except KeyboardInterrupt:
-        print("KeyboardInterrupt received. Shutting down the executor...")
-        # await redis_conn.aclose()
-        executor.shutdown(wait=False)
+    def _anom_fore(self) -> Tuple[float, ...]:
+        future_grubbs = self.exec.submit(self.ad.grubbs_t)
+        future_lscp = self.exec.submit(self.ad.lscp_t)
+        future_spectral = self.exec.submit(self.ad.spectral_residual_saliency)
+        future_vr_forecast = self.exec.submit(self.fore.vr_forecast)
+        future_get_now = self.exec.submit(self.lgc.getNow)
+        futures.wait(
+            cast(
+                Iterable[futures.Future],
+                [
+                    future_vr_forecast,
+                    future_grubbs,
+                    future_lscp,
+                    future_spectral,
+                    future_get_now,
+                ],
+            )
+        )
+        return future_grubbs.result(), future_lscp.result(), future_spectral.result(),
+
+    async def _heal_anal(self, anoms: Tuple[float, ...], MQTTClient: aiomqtt.Client) -> None:
+        tasks = []
+        tasks.append(await asyncio.to_thread(self.hlth.health_score, MQTTClient, *anoms))
+        tasks.append(await asyncio.to_thread(self.lgc.analysis, MQTTClient))
+        await asyncio.gather(*tasks)
+
+    async def _task(self, MQTTClient: aiomqtt.Client) -> None:
+        self._get_data()
+        r = self._anom_fore()
+        await asyncio.gather(self._heal_anal(r, MQTTClient))
+
+    async def run(self) -> None:
+        try:
+            async with aiomqtt.Client(MQTT_IP, MQTT_PORT) as MQTTClient:
+                print("----build new MQTT connection----")
+
+                while 1:
+                    start = time()
+
+                    await self._task(MQTTClient)
+
+                    end = time()
+                    elapsed_time = int((end - start) * 1000000)
+                    self.count += 1
+                    print(f"Loop {self.count} (unit {self.unit}) time used: {elapsed_time} microseconds")
+                    sleep(max(INTERVAL - elapsed_time / 1000000, 0))
+        except aiomqtt.MqttError:
+            print(f"MQTT connection lost; Reconnecting in 5 seconds ...")
+            await asyncio.sleep(5)
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt received. Shutting down the executor...")
+            # await redis_conn.aclose()
+            self.exec.shutdown(wait=False)
 
 
 if __name__ == "__main__":
     app = AppContainer()
     app.wire(modules=[__name__])
 
-    asyncio.run(test('1'))
+    asyncio.run(test('2'))
