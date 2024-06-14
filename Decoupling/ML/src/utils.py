@@ -3,6 +3,7 @@ from typing import Any, Literal, Callable, Tuple, Awaitable, Optional, cast, Ite
 from config import *
 
 import sys
+import uuid
 from time import time, sleep
 from datetime import datetime, timedelta
 from queue import Queue
@@ -35,18 +36,20 @@ INTERVAL = 10
 HISTORY_STEP = 25
 FORECAST_STEP = 5
 FORECAST_INTERVAL = 60
+DECIMALS = 3
+ADFULLER_THRESHOLD_VAL = 0.05
+MAX_QUEUE_SIZE = 10
+
+ANOMALY_SCORE = 50
+ALERT_SCORE = 50
+PER_ALERT_SCORE = 2.5
 ANOMALY_COL_RATIO = 3
 GRUBBS_SCORE = 10
 LSCP_SCORE = 30
 SRA_SCORE = 10
-ANOMALY_SOCRE = 50
-ALERT_SCORE = 50
-PER_ALERT_SCORE = 2.5
-DECIMALS = 3
-ADFULLER_THRESHOLD_VAL = 0.05
+
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-MAX_QUEUE_SIZE = 10
-TESTFILE = "../../test.feather"
+TESTFILE = "test.feather"
 
 # 调节阀开度
 regulatorValveOpening = ( 
@@ -196,7 +199,7 @@ class RedisContainer(containers.DeclarativeContainer):
 
     def _init_redis() -> redis.Redis: # type: ignore
         pool = redis.ConnectionPool.from_url(
-            f"redis://{REDIS_IP}:{REDIS_PORT}/{REDIS_DB}",
+            f"redis://{REDIS_USERNAME}:{REDIS_PASSWORD}@{REDIS_IP}:{REDIS_PORT}/{REDIS_DB}",
             encoding="utf-8",
             decode_responses=True,
         )
@@ -639,7 +642,7 @@ class Health:
             dic = await self.redis_conn.hgetall(key)
             for v in dic.values():
                 # print(v)
-                if v:
+                if v != '0':
                     count += 1
                     break
         return count
@@ -648,7 +651,7 @@ class Health:
         self, MQTTClient: aiomqtt.Client, rGrubbs: float, rLscp: float, rSRA: float
     ) -> None:
         nums = await self._machanism_alarm_nums()
-        score = ANOMALY_SOCRE + ALERT_SCORE
+        score = ANOMALY_SCORE + ALERT_SCORE
         score -= min(ALERT_SCORE, PER_ALERT_SCORE * (len(alerts[self.iUnit]["alarms"]) + nums))
         remainder = score - ANOMALY_COL_RATIO
         if rLscp > ANOMALY_COL_RATIO:
@@ -685,8 +688,15 @@ class Health:
 
 async def test(unit: str) -> None:
     count = 0
+    identifier = str(uuid.uuid4())
     try:
-        async with aiomqtt.Client(MQTT_IP, MQTT_PORT) as MQTTClient:
+        async with aiomqtt.Client(
+            hostname=MQTT_IP,
+            port=MQTT_PORT,
+            username=MQTT_USERNAME,
+            password=MQTT_PASSWORD,
+            identifier=identifier
+        ) as MQTTClient:
             print("----build new MQTT connection----")
             gd = GetData(unit)
             ad = AnomalyDetection(unit)
@@ -703,7 +713,7 @@ async def test(unit: str) -> None:
 
                 await hlth.health_score(MQTTClient, ad.grubbs_t(), ad.lscp_t(), ad.spectral_residual_saliency())
                 await lgc.analysis(MQTTClient)
-                
+
                 end = time()
                 elapsed_time = int((end - start) * 1000000)
                 count += 1
@@ -732,6 +742,7 @@ class Tasks:
         self.fore = Forecast(unit)
         self.lgc = Logic(unit)
         self.hlth = Health(unit)
+        self.identifier = str(uuid.uuid4())
 
     def _get_data(self) -> None:
         future_get_forecast_df = self.exec.submit(self.gd.get_forecast_df)
@@ -771,7 +782,13 @@ class Tasks:
 
     async def run(self) -> None:
         try:
-            async with aiomqtt.Client(MQTT_IP, MQTT_PORT) as MQTTClient:
+            async with aiomqtt.Client(
+                hostname=MQTT_IP,
+                port=MQTT_PORT,
+                username=MQTT_USERNAME,
+                password=MQTT_PASSWORD,
+                identifier=self.identifier,
+            ) as MQTTClient:
                 print("----build new MQTT connection----")
 
                 while 1:

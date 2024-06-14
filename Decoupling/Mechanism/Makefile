@@ -1,6 +1,6 @@
 CC = g++
-CFLAGS = -pthread
-LIBS = -lredis++ -lhiredis -lpaho-mqttpp3 -lpaho-mqtt3a
+CFLAGS = -pthread -std=c++17 -I..
+LIBS = -lredis++ -lhiredis -lpaho-mqttpp3 -lpaho-mqtt3as
 
 all: utils
 
@@ -13,4 +13,4 @@ debug: utils
 clean:
 	rm -f utils
 
-.PHONY: debug
+.PHONY: debug clean

@@ -1,0 +1,17 @@
+version: '3'
+services:
+  worker:
+    image: eh-app
+    container_name: eh
+    environment:
+      - REDIS_IP=172.201.10.171
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=zqkj@2023
+      - MQTT_IP=172.201.10.117
+      - MQTT_PORT=22001
+      - MQTT_USERNAME=admin
+      - MQTT_PASSWORD=admin
+    entrypoint: ["/bin/bash", "-c", "chmod +x /app/start.sh && /app/start.sh && while true; do sleep 1; done"]
+    restart: always

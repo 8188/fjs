@@ -5,7 +5,6 @@
 #include <unordered_map>
 #include <ctime>
 #include <chrono>
-#include <algorithm>
 #include <stdexcept>
 #include <optional>
 #include <sw/redis++/redis++.h>
@@ -178,7 +177,7 @@ private:
     struct Alarm
     {
         std::string_view code;
-        std::string_view desc;
+        std::string desc;
         std::string_view advice;
         std::string startTime;
     };
@@ -247,7 +246,7 @@ public:
                 alarmJson["desc"] = alarm.desc;
                 alarmJson["advice"] = alarm.advice;
                 alarmJson["startTime"] = alarm.startTime;
-                std::cout << alarm.startTime << '\n';
+                // std::cout << alarm.startTime << '\n';
                 alarms.push_back(alarmJson);
                 // std::cout << "Code: " << alarmJson["code"] << ", Desc: " << alarmJson["desc"] << ", Advice: " << alarmJson["advice"] << ", Start Time: " << alarmJson["startTime"] << '\n';
             }
@@ -320,7 +319,7 @@ public:
     {
         int flag{0};
         const std::string key{"FJS" + m_unit + ":Mechanism:regulatorValve"};
-        const std::string_view content{"开调节阀 阀门卡涩"};
+        const std::string content{"开调节阀 阀门卡涩"};
         const std::string now{get_now()}; // 用string_view写入redis会乱码
 
         for (int i{0}; i < static_cast<int>(m_regulatorValveChamberOilPressure.size()); ++i)
@@ -390,8 +389,8 @@ public:
         int flag{0};
         const std::string key{"FJS" + m_unit + ":Mechanism:mainValve"};
         const std::string keyCommand{"FJS" + m_unit + ":Mechanism:command"};
-        const std::string_view content1{"开主汽阀 阀门卡涩"};
-        const std::string_view content2{"试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）"};
+        const std::string content1{"开主汽阀 阀门卡涩"};
+        const std::string content2{"试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）"};
         const std::string now{get_now()};
 
         bool condition = true;
@@ -767,17 +766,31 @@ void show_points(csv::CSVReader::iterator& it, mqtt::async_client& MQTTCli, cons
     bool ok = MQTTCli.publish(msg)->wait_for(TIMEOUT);
 }
 
+bool fileExists(const std::string &filename)
+{
+    std::ifstream file(filename);
+    return file.good();
+}
+
 int main()
 {
+    if (!fileExists(".env"))
+    {
+        throw std::runtime_error("File .env does not exist!");
+    }
+
     dotenv::init();
     const std::string MQTT_ADDRESS{std::getenv("MQTT_ADDRESS")};
     const std::string REDIS_IP{std::getenv("REDIS_IP")};
     const int REDIS_PORT = std::atoi(std::getenv("REDIS_PORT"));
     const int REDIS_DB = std::atoi(std::getenv("REDIS_DB"));
 
-    mqtt::async_client MQTTCli(MQTT_ADDRESS, "");
+    mqtt::async_client MQTTCli(MQTT_ADDRESS, "x_y_z");
+    // mqtt::connect_options_builder()对应mqtt:/ip:port, ::ws()对应ws:/ip:port
     auto connBuilder = mqtt::connect_options_builder::ws();
     auto connOpts = connBuilder
+        .user_name("admin")
+        .password("admin")
         .keep_alive_interval(std::chrono::seconds(45))
         .finalize();
     MQTTCli.connect(connOpts)->wait();

@@ -1,4 +1,4 @@
-from utils import Tasks
+from src.utils import Tasks
 import asyncio
 
 
