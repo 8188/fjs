@@ -16,9 +16,9 @@
 
 using json = nlohmann::json;
 
-constexpr const int QOS{1};
-constexpr const auto TIMEOUT{std::chrono::seconds(10)};
-constexpr const char *DATE_FORMAT{"%Y-%m-%d %H:%M:%S"};
+constexpr const int QOS { 1 };
+constexpr const auto TIMEOUT { std::chrono::seconds(10) };
+constexpr const char* DATE_FORMAT { "%Y-%m-%d %H:%M:%S" };
 
 const std::vector<std::string> codes_with_unit(const std::string &unit, const std::vector<std::string> &codes)
 {
@@ -32,7 +32,7 @@ const std::vector<std::string> codes_with_unit(const std::string &unit, const st
 }
 
 // 调节阀开度
-const std::vector<std::string> regulatorValveOpening{
+const std::vector<std::string> regulatorValveOpening {
     "GRE017MM",
     "GRE027MM",
     "GRE037MM",
@@ -44,7 +44,7 @@ const std::vector<std::string> regulatorValveOpening{
 };
 
 // 调节阀腔室油压
-const std::vector<std::string> regulatorValveChamberOilPressure{
+const std::vector<std::string> regulatorValveChamberOilPressure {
     "GRE016MP",
     "GRE026MP",
     "GRE036MP",
@@ -56,27 +56,27 @@ const std::vector<std::string> regulatorValveChamberOilPressure{
 };
 
 // 油位
-const std::vector<std::string> oilLevel{
+const std::vector<std::string> oilLevel {
     "GFR001MN",
     "GFR002MN",
     "GFR003MN",
 };
 
 // 压力
-const std::vector<std::string> oilPressure{
+const std::vector<std::string> oilPressure {
     "GFR011MP",
     "GFR012MP",
     "GFR013MP",
 };
 
 // 温度
-const std::vector<std::string> oilTemperature{
+const std::vector<std::string> oilTemperature {
     "GFR006MT", // 油温
     "GFR008MT", // 加热器
 };
 
 // 主汽阀开度
-const std::vector<std::string> mainValveOpening{
+const std::vector<std::string> mainValveOpening {
     "GSE011MM",
     "GSE021MM",
     "GSE031MM",
@@ -88,7 +88,7 @@ const std::vector<std::string> mainValveOpening{
 };
 
 // 主汽阀腔室油压
-const std::vector<std::string> mainValveChamberOilPressure{
+const std::vector<std::string> mainValveChamberOilPressure {
     "GSE014MP",
     "GSE024MP",
     "GSE034MP",
@@ -100,25 +100,25 @@ const std::vector<std::string> mainValveChamberOilPressure{
 };
 
 // 过滤器差压
-const std::vector<std::string> filterPressure{
+const std::vector<std::string> filterPressure {
     "GFR039KS",
     "GFR046KS",
     "GFR043KS",
 };
 
 // 抗燃油泵电流
-const std::vector<std::string> pumpCurrent{
+const std::vector<std::string> pumpCurrent {
     "GFR011MI",
     "GFR111MI",
 };
 
 // 安全油压
-const std::vector<std::string> safeOilPressure{
+const std::vector<std::string> safeOilPressure {
     "GSE202MP",
     "GSE203MP",
 };
 
-const std::vector<std::string> others{
+const std::vector<std::string> others {
     "GSE001MC_XF60_AVALUE", // 汽轮机转速
     "GSE002MC_XF60_AVALUE",
     "GSE003MC_XF60",
@@ -132,7 +132,7 @@ const std::vector<std::string> others{
     "GGR002SM", // 盘车退出
 };
 
-const std::vector<std::string_view> regulatorValveTags{
+const std::vector<std::string_view> regulatorValveTags {
     "GRE001VV",
     "GRE002VV",
     "GRE003VV",
@@ -140,9 +140,10 @@ const std::vector<std::string_view> regulatorValveTags{
     "GRE011VV",
     "GRE012VV",
     "GRE013VV",
-    "GRE014VV"};
+    "GRE014VV"
+};
 
-const std::vector<std::string_view> mainValveTags{
+const std::vector<std::string_view> mainValveTags {
     "GSE001VV",
     "GSE002VV",
     "GSE003VV",
@@ -155,10 +156,10 @@ const std::vector<std::string_view> mainValveTags{
 
 const std::string get_now()
 {
-    constexpr int BUFFER_SIZE{20};
+    constexpr int BUFFER_SIZE { 20 };
 
-    auto now{std::chrono::system_clock::now()};
-    auto now_time{std::chrono::system_clock::to_time_t(now)};
+    auto now { std::chrono::system_clock::now() };
+    auto now_time { std::chrono::system_clock::to_time_t(now) };
     char buffer[BUFFER_SIZE];
     std::strftime(buffer, BUFFER_SIZE, DATE_FORMAT, std::localtime(&now_time));
     return std::string(buffer);
@@ -170,6 +171,61 @@ std::time_t string2time(const std::string &timeStr)
     strptime(timeStr.c_str(), DATE_FORMAT, &tm);
     return std::mktime(&tm);
 }
+
+class MyMQTT
+{
+private:
+    mqtt::async_client client;
+    mqtt::connect_options connOpts;
+    
+    mqtt::connect_options buildConnectOptions(const std::string& username, const std::string& password)
+    {
+        // mqtt::connect_options_builder()对应mqtt:/ip:port, ::ws()对应ws:/ip:port
+        auto connBuilder = mqtt::connect_options_builder::ws();
+        return connBuilder
+            .user_name(username)
+            .password(password)
+            .keep_alive_interval(std::chrono::seconds(45))
+            .finalize();
+    }
+
+    void disconnect()
+    {
+        if (client.is_connected())
+        {
+            client.disconnect()->wait();
+            std::cout << "Disconnected from MQTT broker.\n";
+        }
+    }
+
+public:
+    MyMQTT(const std::string& address, const std::string& clientId,
+        const std::string& username, const std::string& password)
+        : client(address, clientId)
+        , connOpts { buildConnectOptions(username, password) }
+    {
+    }
+
+    ~MyMQTT()
+    {
+        disconnect();
+    }
+
+    void connect()
+    {
+        client.connect(connOpts)->wait();
+        std::cout << "Connected to MQTT broker.\n";
+    }
+
+    void publish(const std::string& topic, const std::string& payload, int qos, bool retained = false)
+    {
+        auto msg = mqtt::make_message(topic, payload, qos, retained);
+        bool ok = client.publish(msg)->wait_for(TIMEOUT);
+        if (!ok) {
+            std::cerr << "Error: Publishing message timed out." << std::endl;
+        }
+    }
+};
 
 class MechanismBase
 {
@@ -184,21 +240,24 @@ private:
 
 public:
     sw::redis::Redis& m_redis;
-    mqtt::async_client& m_MQTTCli;
-    std::vector<std::string> m_all_targets{};
-    std::string m_unit{};
-    std::unordered_map<std::string_view, std::unordered_map<std::string_view, std::vector<Alarm>>> alerts{};
+    MyMQTT& m_MQTTCli;
+    std::vector<std::string> m_all_targets {};
+    const std::string m_unit;
+    std::unordered_map<std::string_view, std::unordered_map<std::string_view, std::vector<Alarm>>> alerts {};
     csv::CSVRow& m_c_df;
 
-    MechanismBase(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
-        : m_unit{unit}, m_redis{redis}, m_MQTTCli{MQTTCli}, m_c_df{*it}
+    MechanismBase(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+        : m_unit { unit }
+        , m_redis { redis }
+        , m_MQTTCli { MQTTCli }
+        , m_c_df { *it }
     {
         if (unit < "1" || unit > "9")
         {
             throw std::invalid_argument("unit must be in the range from '1' to '9'");
         }
 
-        const std::vector<std::vector<std::string>> allVectors{
+        const std::vector<std::vector<std::string>> allVectors {
             regulatorValveOpening,
             regulatorValveChamberOilPressure,
             oilLevel,
@@ -212,8 +271,8 @@ public:
             others,
         };
 
-        size_t estimatedTotalSize{100};
-        size_t totalSize{0};
+        size_t estimatedTotalSize { 100 };
+        size_t totalSize { 0 };
         m_all_targets.reserve(estimatedTotalSize);
         for (const auto &vec : allVectors)
         {
@@ -254,8 +313,7 @@ public:
         }
 
         std::string jsonString = j.dump();
-        auto msg = mqtt::make_message(topic, jsonString, QOS, false);
-        bool ok = m_MQTTCli.publish(msg)->wait_for(TIMEOUT);
+        m_MQTTCli.publish(topic, jsonString, QOS);
     }
 
     void trigger(const std::string_view &key, const std::string_view &field, const std::string_view &tag,
@@ -307,20 +365,20 @@ private:
     int iUnit;
 
 public:
-    RegulatorValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    RegulatorValve(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_regulatorValveChamberOilPressure{codes_with_unit(m_unit, regulatorValveChamberOilPressure)}
-        , m_safeOilPressure{codes_with_unit(m_unit, safeOilPressure)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_regulatorValveChamberOilPressure { codes_with_unit(m_unit, regulatorValveChamberOilPressure) }
+        , m_safeOilPressure { codes_with_unit(m_unit, safeOilPressure) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:regulatorValve"};
-        const std::string content{"开调节阀 阀门卡涩"};
-        const std::string now{get_now()}; // 用string_view写入redis会乱码
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:regulatorValve" };
+        const std::string content { "开调节阀 阀门卡涩" };
+        const std::string now { get_now() }; // 用string_view写入redis会乱码
 
         for (int i{0}; i < static_cast<int>(m_regulatorValveChamberOilPressure.size()); ++i)
         {
@@ -376,22 +434,22 @@ private:
     int iUnit;
 
 public:
-    MainValve(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    MainValve(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_mainValveChamberOilPressure{codes_with_unit(m_unit, mainValveChamberOilPressure)}
-        , m_safeOilPressure{codes_with_unit(m_unit, safeOilPressure)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_mainValveChamberOilPressure { codes_with_unit(m_unit, mainValveChamberOilPressure) }
+        , m_safeOilPressure { codes_with_unit(m_unit, safeOilPressure) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:mainValve"};
-        const std::string keyCommand{"FJS" + m_unit + ":Mechanism:command"};
-        const std::string content1{"开主汽阀 阀门卡涩"};
-        const std::string content2{"试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）"};
-        const std::string now{get_now()};
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:mainValve" };
+        const std::string keyCommand { "FJS" + m_unit + ":Mechanism:command" };
+        const std::string content1 { "开主汽阀 阀门卡涩" };
+        const std::string content2 { "试验电磁阀或关断阀卡涩，阀门无法开启（主汽阀）" };
+        const std::string now { get_now() };
 
         bool condition = true;
         for (const std::string &pressure : m_safeOilPressure)
@@ -426,7 +484,7 @@ public:
                 std::time_t startTimeTimestamp = string2time(startTime);
                 std::chrono::seconds diff = std::chrono::seconds(nowTimestamp - startTimeTimestamp);
 
-                for (int i{0}; i < static_cast<int>(m_mainValveChamberOilPressure.size()); ++i)
+                for (int i { 0 }; i < static_cast<int>(m_mainValveChamberOilPressure.size()); ++i)
                 {
                     const std::string chamber = m_mainValveChamberOilPressure[i];
                     const std::string_view tag = mainValveTags[i];
@@ -494,19 +552,19 @@ private:
     int iUnit;
 
 public:
-    LiquidLevel(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    LiquidLevel(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_OilLevel{codes_with_unit(m_unit, oilLevel)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_OilLevel { codes_with_unit(m_unit, oilLevel) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:liquidLevel"};
-        const std::string content{"抗燃油液位"};
-        const std::string now{get_now()};
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:liquidLevel" };
+        const std::string content { "抗燃油液位" };
+        const std::string now { get_now() };
 
         std::optional<std::string> optional_str;        
         for (const std::string &tag : m_OilLevel)
@@ -563,21 +621,21 @@ private:
     int iUnit;
 
 public:
-    Pressure(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    Pressure(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_OilPressure{codes_with_unit(m_unit, oilPressure)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_OilPressure { codes_with_unit(m_unit, oilPressure) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:pressure"};
-        const std::string content{"抗燃油压力"};
-        const std::string now{get_now()};
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:pressure" };
+        const std::string content { "抗燃油压力" };
+        const std::string now { get_now() };
 
-        std::optional<std::string> optional_str;        
+        std::optional<std::string> optional_str;
         for (const std::string &tag : m_OilPressure)
         {
             optional_str = m_redis.hget(key, tag + "_1");
@@ -621,19 +679,19 @@ private:
     int iUnit;
 
 public:
-    Temperature(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    Temperature(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_OilTemperature{codes_with_unit(m_unit, oilTemperature)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_OilTemperature { codes_with_unit(m_unit, oilTemperature) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:temperature"};
-        const std::string content{"抗燃油温度"};
-        const std::string now{get_now()};
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:temperature" };
+        const std::string content { "抗燃油温度" };
+        const std::string now { get_now() };
 
         std::optional<std::string> optional_str;
         const std::string ot = m_OilTemperature[0];
@@ -652,7 +710,7 @@ public:
         {
             return flag;
         }
-        const double otValue{ot_opt.value()};
+        const double otValue { ot_opt.value() };
 
         if (otValue > 60)
         {
@@ -707,19 +765,19 @@ private:
     int iUnit;
 
 public:
-    Filter(std::string unit, sw::redis::Redis& redis, mqtt::async_client& MQTTCli, csv::CSVReader::iterator& it)
+    Filter(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
-        , m_FilterPressure{codes_with_unit(m_unit, filterPressure)}
-        , iUnit{std::stoi(m_unit) - 1}
+        , m_FilterPressure { codes_with_unit(m_unit, filterPressure) }
+        , iUnit { std::stoi(m_unit) - 1 }
     {
     }
 
     int logic() override
     {
-        int flag{0};
-        const std::string key{"FJS" + m_unit + ":Mechanism:filter"};
-        const std::string content{"过滤器堵塞"};
-        const std::string now{get_now()};
+        int flag { 0 };
+        const std::string key { "FJS" + m_unit + ":Mechanism:filter" };
+        const std::string content { "过滤器堵塞" };
+        const std::string now { get_now() };
 
         std::optional<std::string> optional_str;
         for (const std::string &tag : m_FilterPressure)
@@ -747,30 +805,144 @@ public:
     } 
 };
 
-template<typename T>
-void test(T& mechanism, const std::string &topic)
-{
-    int flag = mechanism.logic();
-    std::cout << flag << '\n';
-    if (flag == 1)
-    {
-        mechanism.send_message(topic);
-    }
-}
-
-void show_points(csv::CSVReader::iterator& it, mqtt::async_client& MQTTCli, const std::string& unit)
-{
-    csv::CSVRow& c_df{*it};
-    std::string jsonString = c_df.to_json();
-    auto msg = mqtt::make_message("FJS" + unit + "/Points", jsonString, QOS, false);
-    bool ok = MQTTCli.publish(msg)->wait_for(TIMEOUT);
-}
-
 bool fileExists(const std::string &filename)
 {
     std::ifstream file(filename);
     return file.good();
 }
+
+sw::redis::Redis redis_connect(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
+{
+    sw::redis::ConnectionOptions opts;
+    opts.host = ip;
+    opts.port = port;
+    opts.db = db;
+    if (user != "")
+    {
+        opts.user = user;
+    }
+    if (password != "")
+    {
+        opts.password = password;
+    }
+    opts.socket_timeout = std::chrono::milliseconds(50);
+
+    sw::redis::ConnectionPoolOptions pool_opts;
+    pool_opts.size = 3;
+    pool_opts.wait_timeout = std::chrono::milliseconds(50);
+
+    sw::redis::Redis cli(opts, pool_opts);
+    std::cout << "Connected to Redis.\n";
+    return cli;
+}
+
+class Task
+{
+private:
+    const std::string m_unit;
+    MyMQTT& m_MQTTCli;
+    csv::CSVReader::iterator& m_it;
+
+    const std::string regulator_valve_topic;
+    const std::string main_valve_topic;
+    const std::string liquid_level_topic;
+    const std::string pressure_topic;
+    const std::string temperature_topic;
+    const std::string filter_topic;
+
+    RegulatorValve regulator_valve;
+    MainValve main_valve;
+    LiquidLevel liquid_level;
+    Pressure pressure;
+    Temperature temperature;
+    Filter filter;
+
+    template<typename T>
+    void test(T& mechanism, const std::string &topic)
+    {
+        int flag = mechanism.logic();
+        std::cout << flag << '\n';
+        if (flag == 1)
+        {
+            mechanism.send_message(topic);
+        }
+    }
+
+    void show_points()
+    {
+        csv::CSVRow& c_df { *m_it };
+        std::string jsonString = c_df.to_json();
+        m_MQTTCli.publish("FJS" + m_unit + "/Points", jsonString, QOS);
+    }
+
+public:
+    Task(const std::string& unit, sw::redis::Redis& redisCli, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+        : m_unit { unit }
+        , m_MQTTCli { MQTTCli }
+        , m_it { it }
+        , regulator_valve_topic { "FJS" + unit + "/Mechanism/RegulatorValve" }
+        , main_valve_topic { "FJS" + unit + "/Mechanism/MainValve" }
+        , liquid_level_topic { "FJS" + unit + "/Mechanism/LiquidLevel" }
+        , pressure_topic { "FJS" + unit + "/Mechanism/Pressure" }
+        , temperature_topic { "FJS" + unit + "/Mechanism/Temperature" }
+        , filter_topic { "FJS" + unit + "/Mechanism/Filter" }
+        , regulator_valve { unit, redisCli, MQTTCli, it }
+        , main_valve { unit, redisCli, MQTTCli, it }
+        , liquid_level { unit, redisCli, MQTTCli, it }
+        , pressure { unit, redisCli, MQTTCli, it }
+        , temperature { unit, redisCli, MQTTCli, it }
+        , filter { unit, redisCli, MQTTCli, it }
+    {
+    }
+
+    void run()
+    {
+        tf::Taskflow f1("F1");
+
+        tf::Task f1A = f1.emplace([&]() {
+            test(regulator_valve, regulator_valve_topic);
+        }).name("test_regulator_valve");
+        
+        tf::Task f1B = f1.emplace([&]() {
+            test(main_valve, main_valve_topic);
+        }).name("test_main_valve");
+
+        tf::Task f1C = f1.emplace([&]() {
+            test(liquid_level, liquid_level_topic);
+        }).name("test_liquid_level");
+
+        tf::Task f1D = f1.emplace([&]() {
+            test(pressure, pressure_topic);
+        }).name("test_pressure");
+
+        tf::Task f1E = f1.emplace([&]() {
+            test(temperature, temperature_topic);
+        }).name("test_temperature");
+
+        tf::Task f1F = f1.emplace([&]() {
+            test(filter, filter_topic);
+        }).name("test_filter");
+
+        tf::Task f1G = f1.emplace([&]() {
+            show_points();
+        }).name("show_points");    
+
+        tf::Executor executor;
+        int count = 0;
+        
+        while (count < 3)
+        {
+            auto start = std::chrono::steady_clock::now();
+
+            executor.run(f1).wait();
+
+            auto end = std::chrono::steady_clock::now();
+            auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+            printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
+            std::this_thread::sleep_for(std::chrono::microseconds(5000000 - elapsed_time.count()));
+        }
+    }
+};
 
 int main()
 {
@@ -780,105 +952,32 @@ int main()
     }
 
     dotenv::init();
-    const std::string MQTT_ADDRESS{std::getenv("MQTT_ADDRESS")};
-    const std::string REDIS_IP{std::getenv("REDIS_IP")};
+    const std::string MQTT_ADDRESS { std::getenv("MQTT_ADDRESS") };
+    const std::string MQTT_USERNAME { std::getenv("MQTT_USERNAME") };
+    const std::string MQTT_PASSWORD { std::getenv("MQTT_PASSWORD") };
+
+    const std::string REDIS_IP { std::getenv("REDIS_IP") };
     const int REDIS_PORT = std::atoi(std::getenv("REDIS_PORT"));
     const int REDIS_DB = std::atoi(std::getenv("REDIS_DB"));
+    const std::string REDIS_USER { std::getenv("REDIS_USER") };
+    const std::string REDIS_PASSWORD { std::getenv("REDIS_PASSWORD") };
+    const std::string CLIENT_ID { "x_y_z" };
 
-    mqtt::async_client MQTTCli(MQTT_ADDRESS, "x_y_z");
-    // mqtt::connect_options_builder()对应mqtt:/ip:port, ::ws()对应ws:/ip:port
-    auto connBuilder = mqtt::connect_options_builder::ws();
-    auto connOpts = connBuilder
-        .user_name("admin")
-        .password("admin")
-        .keep_alive_interval(std::chrono::seconds(45))
-        .finalize();
-    MQTTCli.connect(connOpts)->wait();
+    MyMQTT MQTTCli(MQTT_ADDRESS, CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD);
+    MQTTCli.connect();
 
-    sw::redis::ConnectionOptions opts;
-    opts.host = REDIS_IP;
-    opts.port = REDIS_PORT;
-    opts.db = REDIS_DB;
-    opts.socket_timeout = std::chrono::milliseconds(50);
+    sw::redis::Redis redisCli = redis_connect(REDIS_IP, REDIS_PORT, REDIS_DB, REDIS_USER, REDIS_PASSWORD);
 
-    sw::redis::ConnectionPoolOptions pool_opts;
-    pool_opts.size = 3;
-    pool_opts.wait_timeout = std::chrono::milliseconds(50);
-    
-    sw::redis::Redis redisClient(opts, pool_opts);
-
-    const std::string unit{"1"};
-    const int iUnit{std::stoi(unit) - 1};
+    const std::string unit { "1" };
+    const int iUnit { std::stoi(unit) - 1 };
     csv::CSVReader reader("test.csv");
-    std::array<csv::CSVReader::iterator, 2> it{};
+    std::array<csv::CSVReader::iterator, 2> it {};
     for (it[iUnit] = reader.begin(); it[iUnit] != reader.end(); ++it[iUnit])
     {
     }
 
-    RegulatorValve regulator_valve1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string regulator_valve_topic{"FJS" + unit + "/Mechanism/RegulatorValve"};
-
-    MainValve main_valve1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string main_valve_topic{"FJS" + unit + "/Mechanism/MainValve"};
-
-    LiquidLevel liquid_level1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string liquid_level_topic{"FJS" + unit + "/Mechanism/LiquidLevel"};
-
-    Pressure pressure1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string pressure_topic{"FJS" + unit + "/Mechanism/Pressure"};
-
-    Temperature temperature1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string temperature_topic{"FJS" + unit + "/Mechanism/Temperature"};
-
-    Filter filter1{unit, redisClient, MQTTCli, it[iUnit]};
-    const std::string filter_topic{"FJS" + unit + "/Mechanism/Filter"};
-
-    tf::Taskflow f1("F1");
-
-    tf::Task f1A = f1.emplace([&]() {
-        test(regulator_valve1, regulator_valve_topic);
-    }).name("test_regulator_valve");
-    
-    tf::Task f1B = f1.emplace([&]() {
-        test(main_valve1, main_valve_topic);
-    }).name("test_main_valve");
-
-    tf::Task f1C = f1.emplace([&]() {
-        test(liquid_level1, liquid_level_topic);
-    }).name("test_liquid_level");
-
-    tf::Task f1D = f1.emplace([&]() {
-        test(pressure1, pressure_topic);
-    }).name("test_pressure");
-
-    tf::Task f1E = f1.emplace([&]() {
-        test(temperature1, temperature_topic);
-    }).name("test_temperature");
-
-    tf::Task f1F = f1.emplace([&]() {
-        test(filter1, filter_topic);
-    }).name("test_filter");
-
-    tf::Task f1G = f1.emplace([&]() {
-        show_points(it[iUnit], MQTTCli, unit);
-    }).name("show_points");    
-
-    tf::Executor executor;
-    int count = 0;
-    
-    while (count < 3)
-    {
-        auto start = std::chrono::steady_clock::now();
-
-        executor.run(f1).wait();
-
-        auto end = std::chrono::steady_clock::now();
-        auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
-        std::this_thread::sleep_for(std::chrono::microseconds(5000000 - elapsed_time.count()));
-    }
-
-    MQTTCli.disconnect()->wait();
+    Task task1(unit, redisCli, MQTTCli, it[iUnit]);
+    task1.run();
 
     return 0;
 }

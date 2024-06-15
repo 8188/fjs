@@ -20,7 +20,7 @@ program.prof
 系统图.drawio
 requirements.in
 Excel*
-.env
+*.env
 utils.so
 fp_*
 .vscode

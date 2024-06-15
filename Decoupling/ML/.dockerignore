@@ -8,3 +8,4 @@ readme.txt
 requirements.in
 fp_utils.py
 src/__pycache__
+*.env
