@@ -689,13 +689,24 @@ class Health:
 async def test(unit: str) -> None:
     count = 0
     identifier = str(uuid.uuid4())
+    tls_params = (
+        aiomqtt.TLSParameters(
+            ca_certs=MQTT_CA_CERTS,
+            certfile=MQTT_CERTFILE,
+            keyfile=MQTT_KEYFILE,
+            keyfile_password=MQTT_KEYFILE_PASSWORD,
+        )
+        if MQTT_CA_CERTS
+        else None
+    )
     try:
         async with aiomqtt.Client(
             hostname=MQTT_IP,
             port=MQTT_PORT,
             username=MQTT_USERNAME,
             password=MQTT_PASSWORD,
-            identifier=identifier
+            identifier=identifier,
+            tls_params=tls_params
         ) as MQTTClient:
             print("----build new MQTT connection----")
             gd = GetData(unit)
@@ -743,6 +754,16 @@ class Tasks:
         self.lgc = Logic(unit)
         self.hlth = Health(unit)
         self.identifier = str(uuid.uuid4())
+        self.tls_params = (
+            aiomqtt.TLSParameters(
+                ca_certs=MQTT_CA_CERTS,
+                certfile=MQTT_CERTFILE,
+                keyfile=MQTT_KEYFILE,
+                keyfile_password=MQTT_KEYFILE_PASSWORD,
+            )
+            if MQTT_CA_CERTS
+            else None
+        )
 
     def _get_data(self) -> None:
         future_get_forecast_df = self.exec.submit(self.gd.get_forecast_df)
@@ -788,6 +809,7 @@ class Tasks:
                 username=MQTT_USERNAME,
                 password=MQTT_PASSWORD,
                 identifier=self.identifier,
+                tls_params=self.tls_params
             ) as MQTTClient:
                 print("----build new MQTT connection----")
 

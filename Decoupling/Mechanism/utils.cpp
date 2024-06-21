@@ -1,18 +1,22 @@
+#include <chrono>
+#include <ctime>
+// #include <execution>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string_view>
+
 #include "csv.hpp"
 #include "dotenv.h"
 #include "nlohmann/json.hpp"
 #include "taskflow/taskflow.hpp"
-#include <chrono>
-#include <ctime>
-#include <iostream>
 #include <mqtt/async_client.h>
-#include <optional>
-#include <stdexcept>
-#include <string_view>
 #include <sw/redis++/redis++.h>
 
 using json = nlohmann::json;
 
+constexpr const long long INTERVAL { 5000000 };
 constexpr const int QOS { 1 };
 constexpr const auto TIMEOUT { std::chrono::seconds(10) };
 constexpr const char* DATE_FORMAT { "%Y-%m-%d %H:%M:%S" };
@@ -24,9 +28,11 @@ const std::vector<std::string> codes_with_unit(const std::string& unit, const st
     for (const auto& item : codes) {
         result.emplace_back(unit + item);
     }
+    // std::for_each(std::execution::par, codes.begin(), codes.end(), [&](const auto& item) {
+    //     result.emplace_back(unit + item);
+    // });
     return result;
 }
-
 
 bool fileExists(const std::string& filename)
 {
@@ -71,20 +77,68 @@ std::time_t string2time(const std::string& timeStr)
     return std::mktime(&tm);
 }
 
+class MyRedis {
+private:
+    sw::redis::ConnectionOptions makeConnectionOptions(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
+    {
+        sw::redis::ConnectionOptions opts;
+        opts.host = ip;
+        opts.port = port;
+        opts.db = db;
+        if (!user.empty()) {
+            opts.user = user;
+        }
+        if (!password.empty()) {
+            opts.password = password;
+        }
+        opts.socket_timeout = std::chrono::milliseconds(50);
+        return opts;
+    }
+
+    sw::redis::ConnectionPoolOptions makePoolOptions()
+    {
+        sw::redis::ConnectionPoolOptions pool_opts;
+        pool_opts.size = 3;
+        pool_opts.wait_timeout = std::chrono::milliseconds(50);
+        return pool_opts;
+    }
+
+public:
+    sw::redis::Redis redis;
+
+    MyRedis(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
+        : redis(makeConnectionOptions(ip, port, db, user, password), makePoolOptions())
+    {
+        std::cout << "Connected to Redis.\n";
+    }
+};
+
 class MyMQTT {
 private:
     mqtt::async_client client;
     mqtt::connect_options connOpts;
 
-    mqtt::connect_options buildConnectOptions(const std::string& username, const std::string& password)
+    mqtt::connect_options buildConnectOptions(const std::string& username, const std::string& password,
+        const std::string& caCerts, const std::string& certfile,
+        const std::string& keyFile, const std::string& keyFilePassword) const
     {
         // mqtt::connect_options_builder()对应mqtt:/ip:port, ::ws()对应ws:/ip:port
-        auto connBuilder = mqtt::connect_options_builder::ws();
-        return connBuilder
-            .user_name(username)
-            .password(password)
-            .keep_alive_interval(std::chrono::seconds(45))
-            .finalize();
+        auto connBuilder = mqtt::connect_options_builder()
+                               .user_name(username)
+                               .password(password)
+                               .keep_alive_interval(std::chrono::seconds(45));
+
+        if (!caCerts.empty()) {
+            mqtt::ssl_options ssl;
+            ssl.set_trust_store(caCerts);
+            ssl.set_key_store(certfile);
+            ssl.set_private_key(keyFile);
+            ssl.set_private_key_password(keyFilePassword);
+
+            connBuilder.ssl(ssl);
+        }
+
+        return connBuilder.finalize();
     }
 
     void disconnect()
@@ -97,9 +151,11 @@ private:
 
 public:
     MyMQTT(const std::string& address, const std::string& clientId,
-        const std::string& username, const std::string& password)
+        const std::string& username, const std::string& password,
+        const std::string& caCerts, const std::string& certfile,
+        const std::string& keyFile, const std::string& keyFilePassword)
         : client(address, clientId)
-        , connOpts { buildConnectOptions(username, password) }
+        , connOpts { buildConnectOptions(username, password, caCerts, certfile, keyFile, keyFilePassword) }
     {
     }
 
@@ -135,8 +191,8 @@ private:
 
 public:
     const std::string m_unit;
-    sw::redis::Redis& m_redis;
-    MyMQTT& m_MQTTCli;
+    std::shared_ptr<MyRedis> m_redis;
+    std::shared_ptr<MyMQTT> m_MQTTCli;
     std::unordered_map<std::string_view, std::unordered_map<std::string_view, std::vector<Alarm>>> alerts {};
     csv::CSVRow& m_c_df;
 
@@ -165,7 +221,7 @@ public:
     const std::vector<std::string_view> mainValveTags;
     std::vector<std::string> m_all_targets {};
 
-    MechanismBase(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    MechanismBase(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : m_unit { unit }
         , m_redis { redis }
         , m_MQTTCli { MQTTCli }
@@ -208,8 +264,8 @@ public:
             others,
         };
 
-        size_t estimatedTotalSize { 100 };
-        size_t totalSize { 0 };
+        std::size_t estimatedTotalSize { 100 };
+        std::size_t totalSize { 0 };
         m_all_targets.reserve(estimatedTotalSize);
         for (const auto& vec : allVectors) {
             totalSize += vec.size();
@@ -238,15 +294,15 @@ public:
                 alarmJson["desc"] = alarm.desc;
                 alarmJson["advice"] = alarm.advice;
                 alarmJson["startTime"] = alarm.startTime;
-                // std::cout << alarm.startTime << '\n';
                 alarms.push_back(alarmJson);
                 // std::cout << "Code: " << alarmJson["code"] << ", Desc: " << alarmJson["desc"] << ", Advice: " << alarmJson["advice"] << ", Start Time: " << alarmJson["startTime"] << '\n';
             }
             j[std::string(pair.first)] = alarms;
         }
 
-        std::string jsonString = j.dump();
-        m_MQTTCli.publish(topic, jsonString, QOS);
+        const std::string jsonString = j.dump();
+        m_MQTTCli->publish(topic, jsonString, QOS);
+        alerts.clear();
     }
 
     void trigger(const std::string_view& key, const std::string_view& field, const std::string_view& tag,
@@ -261,19 +317,19 @@ public:
         alerts[m_unit]["alarms"].emplace_back(newAlarm);
 
         if (st == "0") {
-            m_redis.hset(key, field, now);
+            m_redis->redis.hset(key, field, now);
         }
     }
 
     void revert(const std::string_view& key, const std::string_view& field, const std::string_view& st) const
     {
         if (!st.empty()) {
-            m_redis.hset(key, field, "0");
+            m_redis->redis.hset(key, field, "0");
         }
     }
 
     template <typename T>
-    std::optional<T> get_value_from_CSVRow(csv::CSVRow& row, const std::string& colName)
+    std::optional<T> get_value_from_CSVRow(csv::CSVRow& row, const std::string& colName) const
     {
         T value {};
         try {
@@ -292,7 +348,7 @@ private:
     int iUnit;
 
 public:
-    RegulatorValve(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    RegulatorValve(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_regulatorValveChamberOilPressure { codes_with_unit(m_unit, regulatorValveChamberOilPressure) }
         , m_safeOilPressure { codes_with_unit(m_unit, safeOilPressure) }
@@ -307,11 +363,11 @@ public:
         const std::string content { "开调节阀 阀门卡涩" };
         const std::string now { get_now() }; // 用string_view写入redis会乱码
 
-        for (int i { 0 }; i < static_cast<int>(m_regulatorValveChamberOilPressure.size()); ++i) {
+        for (std::size_t i { 0 }; i < m_regulatorValveChamberOilPressure.size(); ++i) {
             const std::string chamber = m_regulatorValveChamberOilPressure[i];
             const std::string_view tag = regulatorValveTags[i];
 
-            const auto optional_str = m_redis.hget(key, chamber);
+            const auto optional_str = m_redis->redis.hget(key, chamber);
             const std::string st = optional_str.value_or("0");
 
             bool condition = true;
@@ -352,7 +408,7 @@ private:
     int iUnit;
 
 public:
-    MainValve(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    MainValve(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_mainValveChamberOilPressure { codes_with_unit(m_unit, mainValveChamberOilPressure) }
         , m_safeOilPressure { codes_with_unit(m_unit, safeOilPressure) }
@@ -383,25 +439,25 @@ public:
 
         std::optional<std::string> optional_str;
         if (condition) {
-            optional_str = m_redis.hget(keyCommand, "open");
+            optional_str = m_redis->redis.hget(keyCommand, "open");
             const std::string openCommand = optional_str.value_or("0");
             if (openCommand != "1") {
-                m_redis.hset(keyCommand, "open", "1");
-                m_redis.hset(keyCommand, "openTime", now);
+                m_redis->redis.hset(keyCommand, "open", "1");
+                m_redis->redis.hset(keyCommand, "openTime", now);
             } else {
-                optional_str = m_redis.hget(keyCommand, "openTime");
+                optional_str = m_redis->redis.hget(keyCommand, "openTime");
                 const std::string startTime = optional_str.value_or(now);
                 std::time_t nowTimestamp = string2time(now);
                 std::time_t startTimeTimestamp = string2time(startTime);
                 std::chrono::seconds diff = std::chrono::seconds(nowTimestamp - startTimeTimestamp);
 
-                for (int i { 0 }; i < static_cast<int>(m_mainValveChamberOilPressure.size()); ++i) {
+                for (std::size_t i { 0 }; i < m_mainValveChamberOilPressure.size(); ++i) {
                     const std::string chamber = m_mainValveChamberOilPressure[i];
                     const std::string_view tag = mainValveTags[i];
 
-                    optional_str = m_redis.hget(key, chamber + "_1");
+                    optional_str = m_redis->redis.hget(key, chamber + "_1");
                     const std::string st1 = optional_str.value_or("0");
-                    optional_str = m_redis.hget(key, chamber + "_2");
+                    optional_str = m_redis->redis.hget(key, chamber + "_2");
                     const std::string st2 = optional_str.value_or("0");
 
                     auto mainValveOpenning_opt = get_value_from_CSVRow<double>(m_c_df, m_unit + "GSE011MM");
@@ -430,18 +486,16 @@ public:
                 }
             }
         } else {
-            for (int i { 0 }; i < static_cast<int>(m_mainValveChamberOilPressure.size()); ++i) {
-                const std::string chamber = m_mainValveChamberOilPressure[i];
-
-                optional_str = m_redis.hget(key, chamber + "_1");
+            for (const std::string chamber : m_mainValveChamberOilPressure) {
+                optional_str = m_redis->redis.hget(key, chamber + "_1");
                 const std::string st1 = optional_str.value_or("0");
-                optional_str = m_redis.hget(key, chamber + "_2");
+                optional_str = m_redis->redis.hget(key, chamber + "_2");
                 const std::string st2 = optional_str.value_or("0");
 
                 revert(key, chamber + "_1", st1);
                 revert(key, chamber + "_2", st2);
             }
-            m_redis.hset(keyCommand, "open", "0");
+            m_redis->redis.hset(keyCommand, "open", "0");
         }
         return flag;
     }
@@ -453,7 +507,7 @@ private:
     int iUnit;
 
 public:
-    LiquidLevel(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    LiquidLevel(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilLevel { codes_with_unit(m_unit, oilLevel) }
         , iUnit { std::stoi(m_unit) - 1 }
@@ -469,11 +523,11 @@ public:
 
         std::optional<std::string> optional_str;
         for (const std::string& tag : m_OilLevel) {
-            optional_str = m_redis.hget(key, tag + "_1");
+            optional_str = m_redis->redis.hget(key, tag + "_1");
             const std::string st1 = optional_str.value_or("0");
-            optional_str = m_redis.hget(key, tag + "_2");
+            optional_str = m_redis->redis.hget(key, tag + "_2");
             const std::string st2 = optional_str.value_or("0");
-            optional_str = m_redis.hget(key, tag + "_3");
+            optional_str = m_redis->redis.hget(key, tag + "_3");
             const std::string st3 = optional_str.value_or("0");
 
             auto tag_opt = get_value_from_CSVRow<double>(m_c_df, tag);
@@ -513,7 +567,7 @@ private:
     int iUnit;
 
 public:
-    Pressure(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    Pressure(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilPressure { codes_with_unit(m_unit, oilPressure) }
         , iUnit { std::stoi(m_unit) - 1 }
@@ -529,9 +583,9 @@ public:
 
         std::optional<std::string> optional_str;
         for (const std::string& tag : m_OilPressure) {
-            optional_str = m_redis.hget(key, tag + "_1");
+            optional_str = m_redis->redis.hget(key, tag + "_1");
             const std::string st1 = optional_str.value_or("0");
-            optional_str = m_redis.hget(key, tag + "_2");
+            optional_str = m_redis->redis.hget(key, tag + "_2");
             const std::string st2 = optional_str.value_or("0");
 
             auto tag_opt = get_value_from_CSVRow<double>(m_c_df, tag);
@@ -564,7 +618,7 @@ private:
     int iUnit;
 
 public:
-    Temperature(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    Temperature(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_OilTemperature { codes_with_unit(m_unit, oilTemperature) }
         , iUnit { std::stoi(m_unit) - 1 }
@@ -581,13 +635,13 @@ public:
         std::optional<std::string> optional_str;
         const std::string ot = m_OilTemperature[0];
         const std::string ht = m_OilTemperature[1];
-        optional_str = m_redis.hget(key, ot + "_1");
+        optional_str = m_redis->redis.hget(key, ot + "_1");
         const std::string st1 = optional_str.value_or("0");
-        optional_str = m_redis.hget(key, ot + "_2");
+        optional_str = m_redis->redis.hget(key, ot + "_2");
         const std::string st2 = optional_str.value_or("0");
-        optional_str = m_redis.hget(key, ot + "_3");
+        optional_str = m_redis->redis.hget(key, ot + "_3");
         const std::string st3 = optional_str.value_or("0");
-        optional_str = m_redis.hget(key, ht);
+        optional_str = m_redis->redis.hget(key, ht);
         const std::string st4 = optional_str.value_or("0");
 
         auto ot_opt = get_value_from_CSVRow<double>(m_c_df, ot);
@@ -639,7 +693,7 @@ private:
     int iUnit;
 
 public:
-    Filter(const std::string& unit, sw::redis::Redis& redis, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    Filter(const std::string& unit, std::shared_ptr<MyRedis> redis, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : MechanismBase(unit, redis, MQTTCli, it)
         , m_FilterPressure { codes_with_unit(m_unit, filterPressure) }
         , iUnit { std::stoi(m_unit) - 1 }
@@ -655,7 +709,7 @@ public:
 
         std::optional<std::string> optional_str;
         for (const std::string& tag : m_FilterPressure) {
-            optional_str = m_redis.hget(key, tag);
+            optional_str = m_redis->redis.hget(key, tag);
             const std::string st = optional_str.value_or("0");
 
             auto block_opt = get_value_from_CSVRow<double>(m_c_df, tag);
@@ -674,33 +728,10 @@ public:
     }
 };
 
-sw::redis::Redis redis_connect(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
-{
-    sw::redis::ConnectionOptions opts;
-    opts.host = ip;
-    opts.port = port;
-    opts.db = db;
-    if (user != "") {
-        opts.user = user;
-    }
-    if (password != "") {
-        opts.password = password;
-    }
-    opts.socket_timeout = std::chrono::milliseconds(50);
-
-    sw::redis::ConnectionPoolOptions pool_opts;
-    pool_opts.size = 3;
-    pool_opts.wait_timeout = std::chrono::milliseconds(50);
-
-    sw::redis::Redis cli(opts, pool_opts);
-    std::cout << "Connected to Redis.\n";
-    return cli;
-}
-
 class Task {
 private:
     const std::string m_unit;
-    MyMQTT& m_MQTTCli;
+    std::shared_ptr<MyMQTT> m_MQTTCli;
     csv::CSVReader::iterator& m_it;
 
     const std::string regulator_valve_topic;
@@ -718,7 +749,7 @@ private:
     Filter filter;
 
     template <typename T>
-    void test(T& mechanism, const std::string& topic)
+    void test(T& mechanism, const std::string& topic) const
     {
         int flag = mechanism.logic();
         std::cout << flag << '\n';
@@ -727,15 +758,15 @@ private:
         }
     }
 
-    void show_points()
+    void show_points() const
     {
         csv::CSVRow& c_df { *m_it };
-        std::string jsonString = c_df.to_json();
-        m_MQTTCli.publish("FJS" + m_unit + "/Points", jsonString, QOS);
+        const std::string jsonString = c_df.to_json();
+        m_MQTTCli->publish("FJS" + m_unit + "/Points", jsonString, QOS);
     }
 
 public:
-    Task(const std::string& unit, sw::redis::Redis& redisCli, MyMQTT& MQTTCli, csv::CSVReader::iterator& it)
+    Task(const std::string& unit, std::shared_ptr<MyRedis> redisCli, std::shared_ptr<MyMQTT> MQTTCli, csv::CSVReader::iterator& it)
         : m_unit { unit }
         , m_MQTTCli { MQTTCli }
         , m_it { it }
@@ -754,7 +785,7 @@ public:
     {
     }
 
-    void run()
+    tf::Taskflow flow()
     {
         tf::Taskflow f1("F1");
 
@@ -785,20 +816,7 @@ public:
         tf::Task f1G = f1.emplace([&]() {
                              show_points();
                          }).name("show_points");
-
-        tf::Executor executor;
-        int count = 0;
-
-        while (count < 3) {
-            auto start = std::chrono::steady_clock::now();
-
-            executor.run(f1).wait();
-
-            auto end = std::chrono::steady_clock::now();
-            auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-            printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
-            std::this_thread::sleep_for(std::chrono::microseconds(5000000 - elapsed_time.count()));
-        }
+        return f1;
     }
 };
 
@@ -812,28 +830,47 @@ int main()
     const std::string MQTT_ADDRESS { std::getenv("MQTT_ADDRESS") };
     const std::string MQTT_USERNAME { std::getenv("MQTT_USERNAME") };
     const std::string MQTT_PASSWORD { std::getenv("MQTT_PASSWORD") };
+    const std::string MQTT_CA_CERTS { std::getenv("MQTT_CA_CERTS") };
+    const std::string MQTT_CERTFILE { std::getenv("MQTT_CERTFILE") };
+    const std::string MQTT_KEYFILE { std::getenv("MQTT_KEYFILE") };
+    const std::string MQTT_KEYFILE_PASSWORD { std::getenv("MQTT_KEYFILE_PASSWORD") };
+    const std::string CLIENT_ID { generate_random_string_with_hyphens() };
 
     const std::string REDIS_IP { std::getenv("REDIS_IP") };
     const int REDIS_PORT = std::atoi(std::getenv("REDIS_PORT"));
     const int REDIS_DB = std::atoi(std::getenv("REDIS_DB"));
     const std::string REDIS_USER { std::getenv("REDIS_USER") };
     const std::string REDIS_PASSWORD { std::getenv("REDIS_PASSWORD") };
-    const std::string CLIENT_ID { generate_random_string_with_hyphens() };
 
-    MyMQTT MQTTCli(MQTT_ADDRESS, CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD);
-    MQTTCli.connect();
+    auto MQTTCli = std::make_shared<MyMQTT>(MQTT_ADDRESS, CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD,
+        MQTT_CA_CERTS, MQTT_CERTFILE, MQTT_KEYFILE, MQTT_KEYFILE_PASSWORD);
+    MQTTCli->connect();
 
-    sw::redis::Redis redisCli = redis_connect(REDIS_IP, REDIS_PORT, REDIS_DB, REDIS_USER, REDIS_PASSWORD);
+    auto redisCli = std::make_shared<MyRedis>(REDIS_IP, REDIS_PORT, REDIS_DB, REDIS_USER, REDIS_PASSWORD);
 
-    const std::string unit { "1" };
-    const int iUnit { std::stoi(unit) - 1 };
+    const std::string unit1 { "1" };
+    const int iUnit1 { std::stoi(unit1) - 1 };
     csv::CSVReader reader("test.csv");
     std::array<csv::CSVReader::iterator, 2> it {};
-    for (it[iUnit] = reader.begin(); it[iUnit] != reader.end(); ++it[iUnit]) {
+    for (it[iUnit1] = reader.begin(); it[iUnit1] != reader.end(); ++it[iUnit1]) {
     }
+    
+    Task task1(unit1, redisCli, MQTTCli, it[iUnit1]);
 
-    Task task1(unit, redisCli, MQTTCli, it[iUnit]);
-    task1.run();
+    tf::Executor executor;
+    int count { 0 };
+
+    while (1) {
+        auto start = std::chrono::steady_clock::now();
+
+        executor.run(task1.flow()).wait();
+        // executor.run(task2.flow()).wait();
+
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
+        std::this_thread::sleep_for(std::chrono::microseconds(INTERVAL - elapsed_time.count()));
+    }
 
     return 0;
 }

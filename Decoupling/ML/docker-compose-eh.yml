@@ -4,6 +4,6 @@ services:
     image: eh-app
     container_name: eh
     env_file:
-      - prod.env
+      - .env.eh.prod
     entrypoint: ["/bin/bash", "-c", "chmod +x /app/start.sh && /app/start.sh && while true; do sleep 1; done"]
     restart: always

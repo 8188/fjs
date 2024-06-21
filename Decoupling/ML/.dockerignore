@@ -1,5 +1,4 @@
 .vscode
-.ipynb_checkpoints
 __pycache__
 .dockerignore
 docker-compose.yml
@@ -8,4 +7,4 @@ readme.txt
 requirements.in
 fp_utils.py
 src/__pycache__
-*.env
+.env*
